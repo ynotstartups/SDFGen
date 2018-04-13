@@ -164,13 +164,23 @@ int main(int argc, char* argv[]) {
     outname = filename.substr(0, filename.size()-4) + std::string(".sdf");
     std::cout << "Writing results to: " << outname << "\n";
     
-    std::ofstream outfile( outname.c_str());
-    outfile << phi_grid.ni << " " << phi_grid.nj << " " << phi_grid.nk << std::endl;
-    outfile << min_box[0] << " " << min_box[1] << " " << min_box[2] << std::endl;
-    outfile << dx << std::endl;
-    for(unsigned int i = 0; i < phi_grid.a.size(); ++i) {
-      outfile << phi_grid.a[i] << std::endl;
-    }
+    std::ofstream outfile( outname.c_str(), std::ios::binary);
+
+    outfile.write(reinterpret_cast<const char *>(&phi_grid.ni), sizeof(phi_grid.ni)); // int
+    outfile.write(reinterpret_cast<const char *>(&phi_grid.nj), sizeof(phi_grid.nj)); // int
+    outfile.write(reinterpret_cast<const char *>(&phi_grid.nk), sizeof(phi_grid.nk)); // int
+    outfile.write(reinterpret_cast<const char *>(&min_box), sizeof(min_box[0])*3); // 3 float
+    outfile.write(reinterpret_cast<const char *>(&dx), sizeof(dx)); // 1 float
+
+    auto _size = phi_grid.a.size();
+    if (_size > 0)
+        outfile.write(
+            reinterpret_cast<const char *>(&phi_grid.a),
+            _size*sizeof(phi_grid.a[0]) // 1 float
+        );
+    // for(unsigned int i = 0; i < phi_grid.a.size(); ++i) {
+      // outfile << phi_grid.a[i] << std::endl;
+    // }
     outfile.close();
   #endif
 
