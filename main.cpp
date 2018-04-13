@@ -163,7 +163,7 @@ int main(int argc, char* argv[]) {
     //Very hackily strip off file suffix.
     outname = filename.substr(0, filename.size()-4) + std::string(".sdf");
     std::cout << "Writing results to: " << outname << "\n";
-    
+
     std::ofstream outfile( outname.c_str(), std::ios::binary);
 
     outfile.write(reinterpret_cast<const char *>(&phi_grid.ni), sizeof(phi_grid.ni)); // int
@@ -172,15 +172,12 @@ int main(int argc, char* argv[]) {
     outfile.write(reinterpret_cast<const char *>(&min_box), sizeof(min_box[0])*3); // 3 float
     outfile.write(reinterpret_cast<const char *>(&dx), sizeof(dx)); // 1 float
 
-    auto _size = phi_grid.a.size();
+    const auto _size = phi_grid.a.size();
     if (_size > 0)
         outfile.write(
-            reinterpret_cast<const char *>(&phi_grid.a),
+            reinterpret_cast<const char *>(&(phi_grid.a[0])),
             _size*sizeof(phi_grid.a[0]) // 1 float
         );
-    // for(unsigned int i = 0; i < phi_grid.a.size(); ++i) {
-      // outfile << phi_grid.a[i] << std::endl;
-    // }
     outfile.close();
   #endif
 
