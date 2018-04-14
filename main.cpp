@@ -5,20 +5,110 @@
 
 #include "makelevelset3.h"
 #include "config.h"
-
-#ifdef HAVE_VTK
-  #include <vtkImageData.h>
-  #include <vtkFloatArray.h>
-  #include <vtkXMLImageDataWriter.h>
-  #include <vtkPointData.h>
-  #include <vtkSmartPointer.h>
-#endif
-
-
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <limits>
+
+extern "C" {
+    int SDFGen(const char* _filename, const float dx, int padding) {
+
+    std::string filename(_filename);
+    if(filename.size() < 5 || filename.substr(filename.size()-4) != std::string(".obj")) {
+      std::cerr << "Error: Expected OBJ file with filename of the form <name>.obj.\n";
+      exit(-1);
+    }
+
+    if(padding < 1) padding = 1;
+    //start with a massive inside out bound box.
+    Vec3f min_box(std::numeric_limits<float>::max(),std::numeric_limits<float>::max(),std::numeric_limits<float>::max()), 
+      max_box(-std::numeric_limits<float>::max(),-std::numeric_limits<float>::max(),-std::numeric_limits<float>::max());
+
+    std::cout << "Reading data with name " << _filename << "\n";
+
+    std::ifstream infile(filename);
+    if(!infile) {
+      std::cerr << "Failed to open. Terminating.\n";
+      exit(-1);
+    }
+
+    int ignored_lines = 0;
+    std::string line;
+    std::vector<Vec3f> vertList;
+    std::vector<Vec3ui> faceList;
+    while(!infile.eof()) {
+      std::getline(infile, line);
+
+      //.obj files sometimes contain vertex normals indicated by "vn"
+      if(line.substr(0,1) == std::string("v") && line.substr(0,2) != std::string("vn")){
+        std::stringstream data(line);
+        char c;
+        Vec3f point;
+        data >> c >> point[0] >> point[1] >> point[2];
+        vertList.push_back(point);
+        update_minmax(point, min_box, max_box);
+      }
+      else if(line.substr(0,1) == std::string("f")) {
+        std::stringstream data(line);
+        char c;
+        int v0,v1,v2;
+        data >> c >> v0 >> v1 >> v2;
+        faceList.push_back(Vec3ui(v0-1,v1-1,v2-1));
+      }
+      else if( line.substr(0,2) == std::string("vn") ){
+        std::cerr << "Obj-loader is not able to parse vertex normals, please strip them from the input file. \n";
+        exit(-2); 
+      }
+      else {
+        ++ignored_lines; 
+      }
+    }
+    infile.close();
+
+    if(ignored_lines > 0)
+      std::cout << "Warning: " << ignored_lines << " lines were ignored since they did not contain faces or vertices.\n";
+
+    std::cout << "Read in " << vertList.size() << " vertices and " << faceList.size() << " faces." << std::endl;
+
+    //Add padding around the box.
+    Vec3f unit(1,1,1);
+    min_box -= padding*dx*unit;
+    max_box += padding*dx*unit;
+    Vec3ui sizes = Vec3ui((max_box - min_box)/dx);
+
+    std::cout << "Bound box size: (" << min_box << ") to (" << max_box << ") with dimensions " << sizes << "." << std::endl;
+
+    std::cout << "Computing signed distance field.\n";
+    Array3f phi_grid;
+    make_level_set3(faceList, vertList, min_box, dx, sizes[0], sizes[1], sizes[2], phi_grid);
+
+    std::string outname;
+
+      // if VTK support is missing, default back to the original ascii file-dump.
+      //Very hackily strip off file suffix.
+      outname = filename.substr(0, filename.size()-4) + std::string(".sdf");
+      std::cout << "Writing results to: " << outname.c_str() << "\n";
+
+      std::ofstream outfile( outname.c_str(), std::ios::binary);
+
+      outfile.write(reinterpret_cast<const char *>(&phi_grid.ni), sizeof(phi_grid.ni)); // int
+      outfile.write(reinterpret_cast<const char *>(&phi_grid.nj), sizeof(phi_grid.nj)); // int
+      outfile.write(reinterpret_cast<const char *>(&phi_grid.nk), sizeof(phi_grid.nk)); // int
+      outfile.write(reinterpret_cast<const char *>(&min_box), sizeof(min_box[0])*3); // 3 float
+      outfile.write(reinterpret_cast<const char *>(&dx), sizeof(dx)); // 1 float
+
+      const auto _size = phi_grid.a.size();
+      if (_size > 0)
+          outfile.write(
+              reinterpret_cast<const char *>(&(phi_grid.a[0])),
+              _size*sizeof(phi_grid.a[0]) // 1 float
+          );
+      outfile.close();
+
+    std::cout << "Processing complete.\n";
+    return 0;
+    }
+}
 
 int main(int argc, char* argv[]) {
   
@@ -46,142 +136,6 @@ int main(int argc, char* argv[]) {
     exit(-1);
   }
 
-  std::string filename(argv[1]);
-  if(filename.size() < 5 || filename.substr(filename.size()-4) != std::string(".obj")) {
-    std::cerr << "Error: Expected OBJ file with filename of the form <name>.obj.\n";
-    exit(-1);
-  }
-
-  std::stringstream arg2(argv[2]);
-  float dx;
-  arg2 >> dx;
-  
-  std::stringstream arg3(argv[3]);
-  int padding;
-  arg3 >> padding;
-
-  if(padding < 1) padding = 1;
-  //start with a massive inside out bound box.
-  Vec3f min_box(std::numeric_limits<float>::max(),std::numeric_limits<float>::max(),std::numeric_limits<float>::max()), 
-    max_box(-std::numeric_limits<float>::max(),-std::numeric_limits<float>::max(),-std::numeric_limits<float>::max());
-  
-  std::cout << "Reading data.\n";
-
-  std::ifstream infile(argv[1]);
-  if(!infile) {
-    std::cerr << "Failed to open. Terminating.\n";
-    exit(-1);
-  }
-
-  int ignored_lines = 0;
-  std::string line;
-  std::vector<Vec3f> vertList;
-  std::vector<Vec3ui> faceList;
-  while(!infile.eof()) {
-    std::getline(infile, line);
-
-    //.obj files sometimes contain vertex normals indicated by "vn"
-    if(line.substr(0,1) == std::string("v") && line.substr(0,2) != std::string("vn")){
-      std::stringstream data(line);
-      char c;
-      Vec3f point;
-      data >> c >> point[0] >> point[1] >> point[2];
-      vertList.push_back(point);
-      update_minmax(point, min_box, max_box);
-    }
-    else if(line.substr(0,1) == std::string("f")) {
-      std::stringstream data(line);
-      char c;
-      int v0,v1,v2;
-      data >> c >> v0 >> v1 >> v2;
-      faceList.push_back(Vec3ui(v0-1,v1-1,v2-1));
-    }
-    else if( line.substr(0,2) == std::string("vn") ){
-      std::cerr << "Obj-loader is not able to parse vertex normals, please strip them from the input file. \n";
-      exit(-2); 
-    }
-    else {
-      ++ignored_lines; 
-    }
-  }
-  infile.close();
-  
-  if(ignored_lines > 0)
-    std::cout << "Warning: " << ignored_lines << " lines were ignored since they did not contain faces or vertices.\n";
-
-  std::cout << "Read in " << vertList.size() << " vertices and " << faceList.size() << " faces." << std::endl;
-
-  //Add padding around the box.
-  Vec3f unit(1,1,1);
-  min_box -= padding*dx*unit;
-  max_box += padding*dx*unit;
-  Vec3ui sizes = Vec3ui((max_box - min_box)/dx);
-  
-  std::cout << "Bound box size: (" << min_box << ") to (" << max_box << ") with dimensions " << sizes << "." << std::endl;
-
-  std::cout << "Computing signed distance field.\n";
-  Array3f phi_grid;
-  make_level_set3(faceList, vertList, min_box, dx, sizes[0], sizes[1], sizes[2], phi_grid);
-
-  std::string outname;
-
-  #ifdef HAVE_VTK
-    // If compiled with VTK, we can directly output a volumetric image format instead
-    //Very hackily strip off file suffix.
-    outname = filename.substr(0, filename.size()-4) + std::string(".vti");
-    std::cout << "Writing results to: " << outname << "\n";
-    vtkSmartPointer<vtkImageData> output_volume = vtkSmartPointer<vtkImageData>::New();
-
-    output_volume->SetDimensions(phi_grid.ni ,phi_grid.nj ,phi_grid.nk);
-    output_volume->SetOrigin( phi_grid.ni*dx/2, phi_grid.nj*dx/2,phi_grid.nk*dx/2);
-    output_volume->SetSpacing(dx,dx,dx);
-
-    vtkSmartPointer<vtkFloatArray> distance = vtkSmartPointer<vtkFloatArray>::New();
-    
-    distance->SetNumberOfTuples(phi_grid.a.size());
-    
-    output_volume->GetPointData()->AddArray(distance);
-    distance->SetName("Distance");
-
-    for(unsigned int i = 0; i < phi_grid.a.size(); ++i) {
-      distance->SetValue(i, phi_grid.a[i]);
-    }
-
-    vtkSmartPointer<vtkXMLImageDataWriter> writer =
-    vtkSmartPointer<vtkXMLImageDataWriter>::New();
-    writer->SetFileName(outname.c_str());
-
-    #if VTK_MAJOR_VERSION <= 5
-      writer->SetInput(output_volume);
-    #else
-      writer->SetInputData(output_volume);
-    #endif
-    writer->Write();
-
-  #else
-    // if VTK support is missing, default back to the original ascii file-dump.
-    //Very hackily strip off file suffix.
-    outname = filename.substr(0, filename.size()-4) + std::string(".sdf");
-    std::cout << "Writing results to: " << outname << "\n";
-
-    std::ofstream outfile( outname.c_str(), std::ios::binary);
-
-    outfile.write(reinterpret_cast<const char *>(&phi_grid.ni), sizeof(phi_grid.ni)); // int
-    outfile.write(reinterpret_cast<const char *>(&phi_grid.nj), sizeof(phi_grid.nj)); // int
-    outfile.write(reinterpret_cast<const char *>(&phi_grid.nk), sizeof(phi_grid.nk)); // int
-    outfile.write(reinterpret_cast<const char *>(&min_box), sizeof(min_box[0])*3); // 3 float
-    outfile.write(reinterpret_cast<const char *>(&dx), sizeof(dx)); // 1 float
-
-    const auto _size = phi_grid.a.size();
-    if (_size > 0)
-        outfile.write(
-            reinterpret_cast<const char *>(&(phi_grid.a[0])),
-            _size*sizeof(phi_grid.a[0]) // 1 float
-        );
-    outfile.close();
-  #endif
-
-  std::cout << "Processing complete.\n";
 
 return 0;
 }
