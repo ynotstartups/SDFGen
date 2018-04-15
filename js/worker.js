@@ -1,6 +1,6 @@
 self.addEventListener('message', function(e) {
     const file = e.data.blob;
-    SDFGen(file, 1, 1);
+    SDFGen(file, 0.5, 1);
 }, false);
 
 var Module = {
@@ -44,5 +44,30 @@ function SDFGen(file, padding, dx) {
         // sla should work for binary stl
         let file = new Blob([out_bin], {type: 'application/sla'});
         self.postMessage({"blob":file});
+
+        parseSDF(out_bin);
     }
+}
+
+function parseSDF(bin) {
+    // std::cout << "(ni,nj,nk) are the integer dimensions of the resulting distance field.\n";
+    // std::cout << "(origin_x,origin_y,origin_z) is the 3D position of the grid origin.\n";
+    // std::cout << "<dx> is the grid spacing.\n\n";
+    // std::cout << "<value_n> are the signed distance data values, in ascending order of i, then j, then k.\n";
+    //
+    // all int are unsighed
+    // int int int
+    // float float float
+    // float
+    // lots of floats
+
+    console.time("parse")
+    const buffer = bin.buffer;
+    const dim_x_y_z = new Uint32Array(bin.buffer, 0, 3);
+    const origin_x_y_z = new Float32Array(bin.buffer, 3*4, 3);
+    const grid_spacing = new Float32Array(bin.buffer, 6*4, 1);
+    const sdf = new Float32Array(bin.buffer, 7*4, (bin.byteLength - 7*4)/4);
+    console.timeEnd("parse")
+
+    console.log(dim_x_y_z, origin_x_y_z, grid_spacing, sdf);
 }
