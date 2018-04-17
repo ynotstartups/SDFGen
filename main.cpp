@@ -9,13 +9,17 @@
 #include <iostream>
 #include <sstream>
 #include <limits>
+#include "stlloader.h"
 
 extern "C" {
     int SDFGen(const char* _filename, const float dx, int padding) {
 
     std::string filename(_filename);
-    if(filename.size() < 5 || filename.substr(filename.size()-4) != std::string(".obj")) {
-      std::cerr << "Error: Expected OBJ file with filename of the form <name>.obj.\n";
+    std::string extension = filename.substr(filename.size()-4, filename.size());
+    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+
+    if(filename.size() < 5 && ( extension != std::string(".obj") || extension != std::string(".stl"))) {
+      std::cerr << "Error: Expected OBJ/STL file with filename of the form <name>.obj. not " << filename << "\n";
       exit(-1);
     }
 
@@ -32,41 +36,48 @@ extern "C" {
       exit(-1);
     }
 
-    int ignored_lines = 0;
-    std::string line;
     std::vector<Vec3f> vertList;
     std::vector<Vec3ui> faceList;
-    while(!infile.eof()) {
-      std::getline(infile, line);
 
-      //.obj files sometimes contain vertex normals indicated by "vn"
-      if(line.substr(0,1) == std::string("v") && line.substr(0,2) != std::string("vn")){
-        std::stringstream data(line);
-        char c;
-        Vec3f point;
-        data >> c >> point[0] >> point[1] >> point[2];
-        vertList.push_back(point);
-        update_minmax(point, min_box, max_box);
-      }
-      else if(line.substr(0,1) == std::string("f")) {
-        std::stringstream data(line);
-        char c;
-        int v0,v1,v2;
-        data >> c >> v0 >> v1 >> v2;
-        faceList.push_back(Vec3ui(v0-1,v1-1,v2-1));
-      }
-      else if( line.substr(0,2) == std::string("vn") ){
-        std::cerr << "Obj-loader is not able to parse vertex normals, please strip them from the input file. \n";
-        exit(-2); 
-      }
-      else {
-        ++ignored_lines; 
-      }
+    if (extension == ".obj") {
+        int ignored_lines = 0;
+        std::string line;
+        while(!infile.eof()) {
+          std::getline(infile, line);
+
+          //.obj files sometimes contain vertex normals indicated by "vn"
+          if(line.substr(0,1) == std::string("v") && line.substr(0,2) != std::string("vn")){
+            std::stringstream data(line);
+            char c;
+            Vec3f point;
+            data >> c >> point[0] >> point[1] >> point[2];
+            vertList.push_back(point);
+            update_minmax(point, min_box, max_box);
+          }
+          else if(line.substr(0,1) == std::string("f")) {
+            std::stringstream data(line);
+            char c;
+            int v0,v1,v2;
+            data >> c >> v0 >> v1 >> v2;
+            faceList.push_back(Vec3ui(v0-1,v1-1,v2-1));
+          }
+          else if( line.substr(0,2) == std::string("vn") ){
+            std::cerr << "Obj-loader is not able to parse vertex normals, please strip them from the input file. \n";
+            exit(-2); 
+          }
+          else {
+            ++ignored_lines; 
+          }
+        }
+        infile.close();
+
+        if(ignored_lines > 0)
+          std::cout << "Warning: " << ignored_lines << " lines were ignored since they did not contain faces or vertices.\n";
+    } else { // stl
+        load_stl(filename.c_str(), vertList, faceList);
+        for (auto &point : vertList)
+            update_minmax(point, min_box, max_box);
     }
-    infile.close();
-
-    if(ignored_lines > 0)
-      std::cout << "Warning: " << ignored_lines << " lines were ignored since they did not contain faces or vertices.\n";
 
     std::cout << "Read in " << vertList.size() << " vertices and " << faceList.size() << " faces." << std::endl;
 
@@ -135,6 +146,11 @@ int main(int argc, char* argv[]) {
     
     exit(-1);
   }
+    const char* _filename = argv[1];
+    const float dx = std::stoi(argv[2]);
+    const int padding = std::stoi(argv[3]);
+
+    SDFGen(_filename, dx, padding);
 
 
 return 0;
