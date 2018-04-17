@@ -1,6 +1,6 @@
 self.addEventListener('message', function(e) {
     const file = e.data.blob;
-    SDFGen(file, 0.5, 1);
+    SDFGen(file, 2, 1);
 }, false);
 
 var Module = {
@@ -10,10 +10,12 @@ var Module = {
 };
 
 self.importScripts("SDFgen.js");
+self.importScripts("marchingcubes.js")
 
 let last_file_name = undefined;
 
 function SDFGen(file, padding, dx) {
+    console.log("Doing SDFGen")
 
     var filename = file.name;
 
@@ -33,11 +35,13 @@ function SDFGen(file, padding, dx) {
     fr. onloadend = function (e) {
         var data = new Uint8Array(fr.result);
         Module.FS_createDataFile(".", filename, data, true, true);
+        console.time("SDFGen");
         Module.ccall("SDFGen", // c function name
             undefined, // return
             ["string", "number", "number"], // param
             [filename, padding, dx]
         );
+        console.timeEnd("SDFGen");
 
         // same hacky way of getting the name like in c++
         let out_bin = Module.FS_readFile(filename.slice(0, filename.length-3)+"sdf");
@@ -69,5 +73,9 @@ function parseSDF(bin) {
     const sdf = new Float32Array(bin.buffer, 7*4, (bin.byteLength - 7*4)/4);
     console.timeEnd("parse")
 
-    console.log(dim_x_y_z, origin_x_y_z, grid_spacing, sdf);
+    console.time("MC")
+    MarchingCubes(sdf, dim_x_y_z);
+    console.timeEnd("MC")
+
+    self.postMessage({dim_x_y_z, sdf});
 }

@@ -73,8 +73,6 @@ button {
     `use strict`;
 
     var worker = new Worker('js/worker.js');
-    var worker2 = new Worker('js/worker.js');
-    var worker3 = new Worker('js/worker.js');
 
     worker.onmessage = function(e) {
         const log = e.data.log;
@@ -199,8 +197,6 @@ button {
         update_simplify_to();
         put_status("Simplifying by your browser...See log below");
         worker.postMessage({"blob":SIMPLIFY_FILE.blob});
-        // worker2.postMessage({"blob":SIMPLIFY_FILE.blob});
-        // worker3.postMessage({"blob":SIMPLIFY_FILE.blob});
     }
     function dodrop(event) {
         var dt = event.dataTransfer;
